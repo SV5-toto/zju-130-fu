@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>浙大百卅赋 · 求是园</title>
+<meta name="description" content="浙江大学百卅赋 —— Lenis + GSAP ScrollTrigger 统一 progress 轴滚动叙事（P1–P2 原型）" />
+
+<!-- ============ 字体 ============
+     Noto Serif SC（宋体/标题） + JetBrains Mono（数据/年表）
+     国内若加载慢可换本地思源宋体 / 思源黑体，或移除 CDN 走系统宋体。 -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* ============================================================
+     全局制作参数（与规格第 0 节对应）
+     ------------------------------------------------------------
+     底色主底 #12100D；P1–P2 暖金 #C9A46A / 米白 #F2EBDD。
+     标题宋体，数据/年表等宽字体。
+     ============================================================ */
+  :root {
+    --bg: #12100D;
+    --gold: #C9A46A;
+    --cream: #F2EBDD;
+    --serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    --mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--cream);
+    font-family: var(--serif);
+    overflow-x: hidden;
+  }
+
+  /* 滚动长度：8 页 × 100vh = 800vh（统一 progress 轴的物理载体） */
+  #scroll-space {
+    position: relative;
+    height: 800vh;
+  }
+
+  /* 所有页面叠在固定视口里，由统一 progress 轴驱动 */
+  .page {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  /* ---- 全局颗粒 / 宣纸颗粒 overlay ---- */
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    pointer-events: none;
+    opacity: 0.09;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* 全局暗角，增强图片/电影质感 */
+  .vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 85;
+    pointer-events: none;
+    background: radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(0,0,0,0.5) 100%);
+  }
+
+  /* ---- 调试用 progress 读数（验证统一轴，交付时可删） ---- */
+  #hud {
+    position: fixed;
+    top: 16px;
+    left: 20px;
+    z-index: 110;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: rgba(242,235,221,0.45);
+    pointer-events: none;
+  }
+
+  /* ============================================================
+     第 1 页 · 序章（progress 0.00–0.10）
+     黑场起步 → 金线 scaleX 0→1 → 百卅/标题浮现 → 卷轴转场揭示 P2
+     ============================================================ */
+  .p1 { z-index: 10; background: var(--bg); }
+
+  /* 全屏底图：浙大航拍氛围场
+     低透明度 + 去饱和压暗 + 暖金 soft-light 叠层 */
+  .p1-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, rgba(18,16,13,0.22), rgba(18,16,13,0.8)),
+      url("assets/qiushi-aerial.jpg") center/cover no-repeat;
+    filter: sepia(0.5) saturate(0.72) brightness(0.6) contrast(1.18);
+    opacity: 0.32;
+  }
+  .p1-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(120% 90% at 50% 18%, rgba(201,164,106,0.55), transparent 65%);
+    mix-blend-mode: soft-light;
+  }
+
+  .p1-title {
+    position: absolute;
+    top: 7vh;
+    left: 6vw;
+    font-size: clamp(40px, 5vw, 96px);
+    font-weight: 500;
+    letter-spacing: 0.28em;
+    color: var(--cream);
+    opacity: 0;                 /* timeline 驱动 */
+  }
+
+  /* 百卅 18vw，字距极宽 */
+  .p1-baishi {
+    position: absolute;
+    top: 30vh;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 18vw;
+    font-weight: 900;
+    letter-spacing: 0.32em;
+    line-height: 1;
+    color: var(--cream);
+    opacity: 0;                 /* timeline 驱动 */
+    /* 右移 0.16em 抵消 letter-spacing 带来的视觉右偏 */
+    text-indent: 0.32em;
+  }
+
+  /* 极细水平金线 */
+  .p1-goldline {
+    position: absolute;
+    top: 58vh;
+    left: 8vw;
+    right: 8vw;
+    height: 1.5px;
+    background: linear-gradient(90deg, transparent, var(--gold) 18%, var(--gold) 82%, transparent);
+    transform-origin: left center;
+    transform: scaleX(0);       /* timeline 驱动 0→1 */
+  }
+
+  /* 首段赋文窄栏，金线下方偏左 */
+  .p1-prose {
+    position: absolute;
+    top: 62vh;
+    left: 6vw;
+    width: min(46vw, 620px);
+    font-size: 18px;
+    line-height: 1.9;
+    color: rgba(242,235,221,0.82);
+    opacity: 0;                 /* timeline 驱动 */
+    transform: translateY(12px);
+  }
+
+  /* 底部等宽小字 */
+  .p1-foot {
+    position: absolute;
+    bottom: 6vh;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.35em;
+    color: rgba(242,235,221,0.55);
+    opacity: 0;                 /* timeline 驱动 */
+  }
+
+  /* ============================================================
+     第 2 页 · 双线（progress 0.10–0.22）
+     上下分屏（上 30vh 历史 / 下 65vh 当代），暖白竖直裂隙贯穿，
+     裂隙扩大后纵向打开接 P3。
+     ------------------------------------------------------------
+     - .p2-upper 背景 → 求是书院（褐调单色、高反差、粗颗粒）
+     - .p2-lower 背景 → 浙大玉泉（冷灰、高锐度）
+     ============================================================ */
+  .p2 {
+    z-index: 20;
+    background: var(--bg);
+    clip-path: inset(0% 0% 100% 0%);   /* 初始被裁，卷轴展开时从下向上揭示 */
+  }
+
+  /* 上层：历史 · 褐调老照片质感 */
+  .p2-upper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 30vh;
+    background:
+      linear-gradient(to bottom, rgba(42,33,26,0.38), rgba(23,19,16,0.84)),
+      url("assets/qiushi-academy.webp") center/cover no-repeat;
+    filter: grayscale(1) contrast(1.55) sepia(0.65) brightness(0.66);
+    opacity: 0.8;                     /* 初始态，timeline 驱动到 0 */
+    box-shadow: inset 0 0 90px 30px rgba(0,0,0,0.55); /* 老照片暗角 */
+  }
+  .p2-upper-label {
+    position: absolute;
+    left: 6vw;
+    bottom: 18px;
+    font-size: 15px;
+    letter-spacing: 0.3em;
+    color: rgba(242,235,221,0.75);
+  }
+
+  /* 下层：浙大玉泉 · 冷灰现代质感 */
+  .p2-lower {
+    position: absolute;
+    top: 35vh;
+    left: 0;
+    width: 100%;
+    height: 65vh;
+    background:
+      repeating-linear-gradient(90deg, rgba(170,185,195,0.08) 0 2px, transparent 2px 16px),
+      linear-gradient(to top, rgba(20,25,29,0.55), rgba(40,48,54,0.34)),
+      url("assets/qiushi-yuquan.jpg") center/cover no-repeat;
+    filter: contrast(1.4) saturate(0.5) brightness(0.85);
+    opacity: 0;                       /* 初始态，timeline 驱动淡入 */
+    transform: scale(1.1);            /* 初始放大，timeline 收回到 1 */
+  }
+  .p2-lower-label {
+    position: absolute;
+    left: 6vw;
+    top: 20px;
+    font-size: 15px;
+    letter-spacing: 0.3em;
+    color: rgba(242,235,221,0.72);
+  }
+
+  /* 暖白竖直裂隙：贯穿上下层，随进度水平扩宽 */
+  .p2-fissure {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 36%;
+    width: 2px;
+    transform: translateX(-50%) scaleX(1);
+    transform-origin: center;
+    background: linear-gradient(to bottom,
+      transparent, var(--cream) 18%, #FFF 50%, var(--cream) 82%, transparent);
+    box-shadow: 0 0 18px rgba(242,235,221,0.55);
+  }
+
+  /* 赋文第二段，贴裂隙右侧窄栏 */
+  .p2-prose {
+    position: absolute;
+    top: 40vh;
+    right: 5vw;
+    width: min(30vw, 380px);
+    font-size: 17px;
+    line-height: 2.0;
+    color: rgba(242,235,221,0.85);
+    opacity: 0;                 /* timeline 驱动 */
+  }
+
+  /* ============================================================
+     第 3–8 页 · 占位（原型阶段）
+     P3 用「裂隙纵向打开」转场接入（与 P2 裂隙呼应）；
+     P4–P8 先用简单淡入占位，后续逐页替换。
+     ============================================================ */
+  .p3 { z-index: 30; background: #0c1114; clip-path: inset(0% 50% 0% 50%); }
+  .p4 { z-index: 40; background: #0c0f12; clip-path: circle(0% at 50% 50%); }
+  .p5 { z-index: 50; background: #1c1916; opacity: 0; }
+  .p6 { z-index: 60; background: #0f0d0a; clip-path: circle(0% at 50% 50%); }
+  .p7 { z-index: 70; background: #08090a; opacity: 0; }
+  .p8 { z-index: 80; background: #0a0806; clip-path: circle(0% at 50% 50%); }
+
+  /* ============================================================
+     第 3 页 · 脑机（progress 0.22–0.36）
+     芯片底图作「场」+ Three.js 粒子网络前景动效
+     ============================================================ */
+  .p3-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, rgba(12,17,20,0.5), rgba(8,12,15,0.85)),
+      url("assets/wukong-chip.jpg") center/cover no-repeat;   /* 达尔文3代芯片实物图（中青报/浙大供图） */
+    filter: contrast(1.4) saturate(0.4) brightness(0.6);
+    opacity: 0.32;
+  }
+  /* 服务器实物图：底部横幅补充底图 */
+  .p3-bg-server {
+    position: absolute;
+    left: 50%;
+    bottom: 5vh;
+    transform: translateX(-50%);
+    width: 56vw;
+    height: 22vh;
+    background: url("assets/wukong-server.jpg") center/cover no-repeat;  /* 神经拟态类脑服务器 */
+    filter: contrast(1.3) saturate(0.35) brightness(0.55);
+    opacity: 0.3;
+    box-shadow: inset 0 0 60px 20px rgba(0,0,0,0.65);
+  }
+  #p3-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  /* 数据词：冷白等宽，贴粒子结构左侧 */
+  .p3-data {
+    position: absolute;
+    left: 6vw;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 2.5;
+    letter-spacing: 0.08em;
+    color: rgba(200,240,240,0.85);
+    opacity: 0;                 /* timeline 驱动 */
+  }
+  .p3-data .en { color: rgba(150,200,200,0.7); }
+  /* 赋文第三段，右侧窄栏，按句 stagger */
+  .p3-prose {
+    position: absolute;
+    right: 5vw;
+    top: 50%;
+    transform: translateY(-50%);
+    width: min(32vw, 400px);
+    font-size: 18px;
+    line-height: 2.0;
+    color: rgba(242,235,221,0.75);
+  }
+  .p3-prose p {
+    opacity: 0;
+    transform: translateX(-8px);   /* 每句由 timeline 驱动 */
+    margin-bottom: 0.6em;
+  }
+
+  /* ============================================================
+     第 4 页 · 量子与苍穹（progress 0.36–0.52）
+     横向场景：左段量子（26 节点 + 240 平行线，自制动效）
+     右段航天（天舟八号发射实物图 + 空间站剪影）
+     ============================================================ */
+  .p4-track {
+    position: absolute;
+    top: 0; left: 0;
+    width: 200vw; height: 100vh;
+    display: flex;
+    will-change: transform;
+  }
+  .p4-quantum, .p4-space {
+    position: relative;
+    width: 100vw; height: 100vh;
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+  /* 240 条半透明平行线（量子段底纹） */
+  .p4-lines {
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg,
+      rgba(79,209,197,0.07) 0, rgba(79,209,197,0.07) 1px,
+      transparent 1px calc(100% / 240));
+  }
+  /* 26 个发光节点 */
+  .p4-chain {
+    position: absolute;
+    top: 44vh; left: 8vw; right: 8vw;
+    height: 40px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .p4-chain .node {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #4fd1c5;
+    box-shadow: 0 0 14px rgba(79,209,197,0.9);
+    opacity: 0.12;                 /* timeline 逐节点点亮 */
+  }
+  .p4-num {
+    position: absolute;
+    top: 28vh; left: 8vw;
+    font-family: var(--mono);
+    font-size: 8vw; font-weight: 500;
+    letter-spacing: -0.02em;
+    color: #4fd1c5;
+    opacity: 0;                    /* timeline 驱动 */
+  }
+  .p4-num em { font-style: normal; color: rgba(79,209,197,0.35); }
+  /* 航天段：发射实物图 + 空间站剪影 */
+  .p4-space-bg {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(8,12,18,0.5), rgba(4,6,10,0.88)),
+      url("assets/station-full.jpg") top center / cover no-repeat;
+    filter: contrast(1.2) saturate(0.5) brightness(0.5);
+    opacity: 0.5;
+  }
+  .p4-station {
+    position: absolute;
+    top: 36vh; left: 8vw; right: 8vw; height: 26vh;
+    filter: drop-shadow(0 0 18px rgba(180,210,230,0.35));
+  }
+  .p4-space-label {
+    position: absolute;
+    top: 26vh; right: 8vw;
+    font-family: var(--mono); font-size: 14px; letter-spacing: 0.32em;
+    color: rgba(200,215,225,0.85);
+    opacity: 0;                    /* timeline 驱动 */
+  }
+  /* 赋文两栏（量子左 / 航天右） */
+  .p4-prose-q {
+    position: absolute;
+    bottom: 13vh; left: 8vw;
+    width: min(40vw, 520px);
+    font-size: 17px; line-height: 2.0;
+    color: rgba(242,235,221,0.8);
+    opacity: 0;
+  }
+  .p4-prose-s {
+    position: absolute;
+    bottom: 13vh; right: 8vw;
+    width: min(38vw, 500px);
+    font-size: 17px; line-height: 2.0;
+    color: rgba(242,235,221,0.8);
+    opacity: 0;
+  }
+  /* 轨道弧线：连接量子链末端与空间站 */
+  .p4-orbit {
+    position: absolute;
+    top: 0; left: 0;
+    width: 200vw; height: 100vh;
+    pointer-events: none;
+  }
+
+  /* ============================================================
+     第 5 页 · 生命 · 可变形的时间（progress 0.52–0.65）
+     水凝胶实物图作底 + 直条→卷曲→闭环支架 形变动画
+     ============================================================ */
+  .p5-bg {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(28,25,22,0.4), rgba(20,17,15,0.9)),
+      url("assets/hydrogel.jpg") center/cover no-repeat;
+    filter: contrast(1.15) saturate(0.6) brightness(0.55);
+    opacity: 0.45;
+  }
+  .p5-morph {
+    position: absolute;
+    top: 20vh; left: 50%; transform: translateX(-50%);
+    width: min(72vw, 900px); height: 42vh;
+  }
+  .p5-path {
+    fill: none;
+    stroke: rgba(217,167,160,0.9);
+    stroke-width: 0.018;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 10px rgba(217,167,160,0.5));
+  }
+  .p5-node {
+    fill: #e8c9c2;
+    filter: drop-shadow(0 0 5px rgba(217,167,160,0.85));
+  }
+  .p5-cells {
+    position: absolute;
+    left: 0; bottom: 0;
+    width: 100%; height: 32vh;
+    overflow: hidden;
+  }
+  .p5-labels {
+    position: absolute;
+    left: 6vw; top: 52%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: 12px; line-height: 2.6;
+    letter-spacing: 0.1em; color: rgba(217,167,160,0.92);
+  }
+  .p5-labels .lbl { opacity: 0; }
+  .p5-prose {
+    position: absolute;
+    right: 5vw; top: 52%; transform: translateY(-50%);
+    width: min(30vw, 400px);
+    font-size: 19px; line-height: 2.0;
+    color: rgba(242,235,221,0.85);
+  }
+  .p5-prose p { opacity: 0; }
+
+  /* ============================================================
+     第 6 页 · 控制与产业（progress 0.65–0.78）
+     工业控制柜底图 + 琥珀扫光（文字暗灰→白）+ 过曝转场
+     ============================================================ */
+  .p6-bg {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(10,8,6,0.55), rgba(5,4,3,0.92)),
+      url("assets/industrial.jpg") center/cover no-repeat;
+    filter: contrast(1.45) saturate(0.35) brightness(0.55) sepia(0.15);
+    opacity: 0.4;
+  }
+  .p6-bg::before {
+    content: ""; position: absolute; inset: 0;
+    background: url("assets/circuit.jpg") center/cover no-repeat;
+    filter: contrast(1.3) saturate(0.4) brightness(0.6);
+    opacity: 0.35;
+    mix-blend-mode: screen;
+  }
+  .p6-bg::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(120% 100% at 50% 50%, transparent 40%, rgba(201,120,40,0.18) 100%);
+    mix-blend-mode: screen;
+  }
+  .p6-scan {
+    position: absolute;
+    top: -12vh; left: 50%; transform: translateX(-50%);
+    width: 3px; height: 18vh;
+    background: linear-gradient(to bottom, transparent, #ffb347, transparent);
+    box-shadow: 0 0 32px 8px rgba(255,170,60,0.5);
+    z-index: 3;
+  }
+  .p6-cols {
+    position: absolute;
+    top: 24vh; left: 8vw; right: 8vw;
+    display: flex; justify-content: space-between;
+    height: 46vh;
+  }
+  .p6-col { position: relative; width: 44%; }
+  .col-dark { color: #3A3A3A; }
+  .col-light {
+    position: absolute; inset: 0;
+    color: #F2EBDD;
+    clip-path: inset(100% 0 0 0);
+  }
+  .p6-num {
+    font-family: var(--mono);
+    font-size: clamp(28px, 4.2vw, 68px);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+  .p6-sub {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.18em;
+    line-height: 2.2;
+  }
+  .p6-sub.sign {
+    font-size: 11px; letter-spacing: 0.22em; opacity: 0.85;
+  }
+  .p6-prose {
+    position: absolute;
+    bottom: 13vh; left: 8vw; right: 8vw;
+    font-size: 18px; line-height: 2.0;
+    color: rgba(242,235,221,0.72);
+    text-align: center;
+    opacity: 0;
+  }
+  .p6-flash {
+    position: absolute; inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* ============================================================
+     第 7 页 · 数据 · 百卅的密度（progress 0.78–0.89）
+     数字点阵像星图 + 极淡坐标网格，无摄影图
+     ============================================================ */
+  .p7-grid {
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, rgba(242,235,221,0.05) 0 1px, transparent 1px 64px),
+      repeating-linear-gradient(90deg, rgba(242,235,221,0.05) 0 1px, transparent 1px 64px);
+  }
+  .p7-nums .d7 {
+    position: absolute;
+    font-family: var(--mono);
+    font-weight: 300;
+    color: #3A3A3A;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .p7-prose span {
+    position: absolute;
+    font-size: 16px;
+    line-height: 1.6;
+    color: rgba(242,235,221,0.65);
+    font-family: var(--serif);
+    letter-spacing: 0.06em;
+  }
+  .p7-ring {
+    position: absolute;
+    right: 4vw; bottom: 5vh;
+    width: 38px; height: 38px;
+    border: 1px solid rgba(242,235,221,0.3);
+    border-top-color: rgba(242,235,221,0.9);
+    border-radius: 50%;
+    animation: p7spin 7s linear infinite;
+  }
+  @keyframes p7spin { to { transform: rotate(360deg); } }
+
+  /* ============================================================
+     第 8 页 · 终章 · 与天地同寿（progress 0.89–1.00）
+     自制 SVG 星轨星图，无外部原图
+     ============================================================ */
+  .p8-stars {
+    position: absolute; inset: 0;
+    opacity: 0;                 /* timeline 驱动缓慢显现 */
+  }
+  .p8-stars svg { width: 100%; height: 100%; display: block; }
+  .p8-stars::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(120% 100% at 50% 40%, rgba(201,164,106,0.28), transparent 72%);
+    mix-blend-mode: soft-light;
+  }
+  .p8-prose {
+    position: absolute;
+    top: 16vh; right: 8vw;
+    width: min(40vw, 560px);
+    font-size: clamp(18px, 1.6vw, 22px);
+    line-height: 2.2;
+    color: #E8E4DC;
+    opacity: 0;                 /* timeline 驱动 */
+  }
+  .p8-foot {
+    position: absolute;
+    bottom: 6vh; left: 0; width: 100%;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: 0.4em;
+    color: rgba(232,228,220,0.5);
+    opacity: 0;                 /* timeline 驱动到 0.5 */
+  }
+
+  .ph {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 18px;
+  }
+  .ph-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.4em;
+    color: var(--gold);
+  }
+  .ph-title {
+    font-size: clamp(22px, 3vw, 40px);
+    letter-spacing: 0.24em;
+    color: rgba(242,235,221,0.6);
+  }
+  .ph-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: rgba(242,235,221,0.3);
+  }
+</style>
+</head>
+<body>
+
+<div id="scroll-space"></div>
+
+<!-- 调试读数 -->
+<div id="hud">progress 0.000 · P1 序章</div>
+
+<!-- 全局颗粒 -->
+<div class="grain"></div>
+<!-- 全局暗角 -->
+<div class="vignette"></div>
+
+<!-- ======================= P1 序章 ======================= -->
+<section class="page p1">
+  <div class="p1-bg"></div>
+  <h1 class="p1-title">浙大百卅赋</h1>
+  <div class="p1-baishi">百卅</div>
+  <div class="p1-goldline"></div>
+  <div class="p1-prose">
+    <p>岁次丙午，序属金秋。钱塘潮涌，求是园幽。夫浙江大学者，肇基于光绪丁酉，立学于浙水之滨。百卅年间，数易其名，几迁其址，而“求是创新”之训，如日月之经天，江河之行地，未尝一日稍改。近岁六载，岁自庚子以迄丙午，气象弥新，伟业方遒。百卅之庆，将近于兹；六载之功，可述于赋。其辞曰：</p>
+  </div>
+  <div class="p1-foot">1897 — 2027 / 求是园</div>
+</section>
+
+<!-- ======================= P2 双线 ======================= -->
+<section class="page p2">
+  <!-- 上层：求是书院（褐调老照片质感） -->
+  <div class="p2-upper">
+    <div class="p2-upper-label">光绪丁酉 · 求是书院</div>
+  </div>
+
+  <!-- 下层：浙大玉泉（冷灰现代质感） -->
+  <div class="p2-lower">
+    <div class="p2-lower-label">求是创新 · 百卅未改</div>
+  </div>
+
+  <!-- 暖白竖直裂隙 -->
+  <div class="p2-fissure"></div>
+
+  <!-- 赋文第二段 -->
+  <div class="p2-prose">
+    <p>溯夫清季未造，国步维艰。林公启宇，创求是书院于蒲场巷；兴学图强，开近代新学之先鞭。西子湖光，涵育经纶之志；钱塘帆影，氤氲求是之魂。观乎近年之盛，可谓日新月异矣。</p>
+  </div>
+</section>
+
+<!-- ======================= P3–P8 占位 ======================= -->
+<section class="page p3">
+  <div class="p3-bg"></div>
+  <div class="p3-bg-server"></div>
+  <canvas id="p3-canvas"></canvas>
+  <div class="p3-data">
+    <span class="en">20,000,000,000</span> neurons<br>
+    <span class="en">960</span> Darwin-3 chips<br>
+    意念驭械<br>
+    八旬翁以意书汉字
+  </div>
+  <div class="p3-prose">
+    <p>脑机相融，慧通六合。</p>
+    <p>悟空应运而生，廿亿神经元萃于一芯，类脑之算冠绝寰中；</p>
+    <p>侵入式接口，意念驭械，瘫痪之躯复能挥毫。</p>
+    <p>八旬翁以意书汉字，笔走龙蛇；九十六分之辨，中文识读，纤毫毕现。</p>
+    <p>脑机智能，列全国标杆之室；双脑中心，开学科交融之门。</p>
+  </div>
+</section>
+<section class="page p4">
+  <div class="p4-track">
+    <div class="p4-quantum">
+      <div class="p4-lines"></div>
+      <div class="p4-num">26<em>/240</em></div>
+      <div class="p4-chain"></div>
+      <div class="p4-prose-q">量子之微，玄之又玄。廿六量子位，二百四十重门，全数字模拟，肇“拓扑时间晶体”之新态，发前人所未发，刊《自然》之典册。</div>
+    </div>
+    <svg class="p4-orbit" viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M92,44 Q100,16 150,42" fill="none" stroke="rgba(79,209,197,0.5)" stroke-width="0.3"/>
+    </svg>
+    <div class="p4-space">
+      <div class="p4-space-bg"></div>
+      <div class="p4-space-label">天舟八号 / 五度问天</div>
+      <svg class="p4-station" viewBox="0 0 1200 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <g fill="rgba(150,175,195,0.85)">
+          <rect x="40" y="150" width="240" height="100" rx="4"/>
+          <rect x="70" y="110" width="24" height="180"/>
+        </g>
+        <g fill="rgba(150,175,195,0.85)">
+          <rect x="920" y="150" width="240" height="100" rx="4"/>
+          <rect x="1106" y="110" width="24" height="180"/>
+        </g>
+        <rect x="300" y="185" width="600" height="30" rx="15" fill="rgba(200,215,225,0.9)"/>
+        <circle cx="600" cy="200" r="22" fill="rgba(210,225,235,0.95)"/>
+        <rect x="235" y="190" width="70" height="20" rx="10" fill="rgba(175,190,205,0.85)"/>
+        <path d="M235,200 L205,183 L205,217 Z" fill="rgba(175,190,205,0.85)"/>
+        <rect x="895" y="190" width="70" height="20" rx="10" fill="rgba(175,190,205,0.85)"/>
+        <path d="M965,200 L995,183 L995,217 Z" fill="rgba(175,190,205,0.85)"/>
+      </svg>
+      <div class="p4-prose-s">天舟八号，凌虚而渡，载蛋白质结晶以问苍穹；五度问天，探微重力之秘，助新药之研创。</div>
+    </div>
+  </div>
+</section>
+<section class="page p5">
+  <div class="p5-bg"></div>
+  <svg class="p5-morph" viewBox="-1.2 -0.45 2.4 1.7" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <path class="p5-path" d="" />
+    <g class="p5-nodes"></g>
+  </svg>
+  <div class="p5-cells"></div>
+  <div class="p5-labels">
+    <div class="lbl">4D printing</div>
+    <div class="lbl">delayed deformation</div>
+    <div class="lbl">vascular stent</div>
+  </div>
+  <div class="p5-prose">
+    <p>水凝胶四维打印，延时变形，血管支架指日可待；</p>
+    <p>智能递药，破瘤内之壁垒，国家自然科学之奖荣膺。</p>
+    <p>长效胰岛素，一针而旬日，沉疴稍解；</p>
+    <p>单细胞蛋白组，廿秒而取微，癌异可辨。</p>
+  </div>
+</section>
+<section class="page p6">
+  <div class="p6-bg"></div>
+  <div class="p6-scan"></div>
+  <div class="p6-cols">
+    <div class="p6-col p6-left">
+      <div class="col-dark">
+        <div class="p6-num">2500+</div>
+        <div class="p6-sub">炉顶压力 −50%</div>
+        <div class="p6-sub">出口 欧美 · 日韩</div>
+      </div>
+    </div>
+    <div class="p6-col p6-right">
+      <div class="col-dark">
+        <div class="p6-sub sign">DeepSeek / 深度求索 / 浙大校友</div>
+        <div class="p6-num">六小龙</div>
+        <div class="p6-num">650+ 校友企业</div>
+        <div class="p6-sub">营收 1500 亿</div>
+      </div>
+    </div>
+  </div>
+  <div class="p6-prose">高端控制，自主设计。二千五百余套装置遍布寰宇，炉顶压力波动减半，出口欧美日韩，破垄断之封锁，扬华夏之声威。</div>
+  <div class="p6-flash"></div>
+</section>
+<section class="page p7">
+  <div class="p7-grid"></div>
+  <div class="p7-nums">
+    <span class="d7" style="top:11vh;left:12vw;font-size:7vw;">21</span>
+    <span class="d7" style="top:15vh;left:58vw;font-size:4vw;">3甲</span>
+    <span class="d7" style="top:33vh;left:7vw;font-size:5vw;">7→12</span>
+    <span class="d7" style="top:37vh;left:64vw;font-size:6vw;">0→27</span>
+    <span class="d7" style="top:52vh;left:28vw;font-size:3.5vw;">近千</span>
+    <span class="d7" style="top:44vh;left:44vw;font-size:8vw;">1500</span>
+    <span class="d7" style="top:64vh;left:13vw;font-size:4.5vw;">650</span>
+    <span class="d7" style="top:68vh;left:60vw;font-size:5.5vw;">1500亿</span>
+    <span class="d7" style="top:25vh;left:34vw;font-size:3vw;">DeepSeek</span>
+    <span class="d7" style="top:58vh;left:74vw;font-size:2.6vw;">六小龙</span>
+  </div>
+  <div class="p7-prose">
+    <span style="top:19vh;left:6vw;">学科会聚，廿一科登世界一流之榜</span>
+    <span style="top:45vh;left:66vw;">五轮评估，A类鼎立全国三甲</span>
+    <span style="top:57vh;left:8vw;">全国重点实验室，由七而十二</span>
+    <span style="top:30vh;left:42vw;">CNS之宏文，自零至廿七</span>
+    <span style="top:74vh;left:32vw;">两院院士俊彦近千 · 创业新企一千五百</span>
+    <span style="top:82vh;left:58vw;">校友企业六百五十家 · 营收逾一千五百亿</span>
+  </div>
+  <div class="p7-ring"></div>
+</section>
+<section class="page p8">
+  <div class="p8-stars">
+    <svg viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+  </div>
+  <div class="p8-prose">
+    <p>嗟夫！百卅之校，其命维新。昔以求是为本，今以创新为魂。东海扬波，不尽求是之志；湖山作证，长昭报国之心。愿此赋以为贺，祝斯校与天地同寿，共日月齐光。是为赋。</p>
+  </div>
+  <div class="p8-foot">岁次丙午秋月 撰于求是园</div>
+</section>
+
+<!-- ============ 依赖 ============ -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js"></script>
+
+<script>
+  gsap.registerPlugin(ScrollTrigger);
+
+  /* ============================================================
+     Lenis 平滑滚动 + ScrollTrigger 同步
+     ============================================================ */
+  const lenis = new Lenis({ duration: 1.2, smoothWheel: true });
+  lenis.on('scroll', ScrollTrigger.update);
+  gsap.ticker.add((time) => lenis.raf(time * 1000));
+  gsap.ticker.lagSmoothing(0);
+
+  /* ============================================================
+     统一 progress 轴（0→1）
+     一条 master timeline，duration = 1，ScrollTrigger 把 0→1
+     映射到 #scroll-space 的完整滚动。所有页面动画都挂这条轴上。
+     position 单位即「progress」，例如 position:0.08 表示在 8% 处开始。
+     ============================================================ */
+  const PAGES = {
+    P1: [0.00, 0.10], P2: [0.10, 0.22], P3: [0.22, 0.36], P4: [0.36, 0.52],
+    P5: [0.52, 0.65], P6: [0.65, 0.78], P7: [0.78, 0.89], P8: [0.89, 1.00],
+  };
+
+  const tl = gsap.timeline({
+    defaults: { ease: 'none' },
+    scrollTrigger: {
+      trigger: '#scroll-space',
+      start: 'top top',
+      end: 'bottom bottom',
+      scrub: 0.6,
+    },
+  });
+
+  /* ============================================================
+     P3 脑机粒子网络（Three.js）
+     粒子从稀疏网络 → 高密度簇状 → 收缩为高亮奇点
+     状态由 P3 局部进度 p3.local（0→1）驱动
+     ============================================================ */
+  const p3 = { local: 0, ready: false, update: null };
+
+  (function initP3() {
+    if (typeof THREE === 'undefined') return;   // three CDN 未加载则跳过
+    const canvas = document.getElementById('p3-canvas');
+    if (!canvas) return;
+
+    const N = 240, K = 4;
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 0);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 50);
+    camera.position.z = 4.2;
+
+    // 簇中心（4 簇，环状分布）
+    const centers = [];
+    for (let k = 0; k < K; k++) {
+      const a = (k / K) * Math.PI * 2;
+      centers.push(new THREE.Vector3(Math.cos(a) * 0.9, Math.sin(a) * 0.5, 0));
+    }
+    // 稀疏球壳 pos0 / 簇 pos1
+    const pos0 = new Float32Array(N * 3);
+    const pos1 = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const r = 1.4 + Math.random() * 0.9;
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(2 * Math.random() - 1);
+      pos0[i*3]   = r * Math.sin(ph) * Math.cos(th);
+      pos0[i*3+1] = r * Math.sin(ph) * Math.sin(th);
+      pos0[i*3+2] = r * Math.cos(ph);
+      const c = centers[i % K];
+      pos1[i*3]   = c.x + (Math.random() - 0.5) * 0.55;
+      pos1[i*3+1] = c.y + (Math.random() - 0.5) * 0.55;
+      pos1[i*3+2] = c.z + (Math.random() - 0.5) * 0.55;
+    }
+
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pos0.slice(), 3));
+    const pMat = new THREE.PointsMaterial({
+      color: 0x4fd1c5, size: 0.045, transparent: true, opacity: 0.85,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const points = new THREE.Points(pGeo, pMat);
+
+    const MAX_LINES = N * 3;
+    const lineArr = new Float32Array(MAX_LINES * 6);
+    const lGeo = new THREE.BufferGeometry();
+    lGeo.setAttribute('position', new THREE.BufferAttribute(lineArr, 3));
+    lGeo.setDrawRange(0, 0);
+    const lMat = new THREE.LineBasicMaterial({
+      color: 0x4fd1c5, transparent: true, opacity: 0.22,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const lines = new THREE.LineSegments(lGeo, lMat);
+
+    // 奇点光晕（sprite + 径向渐变）
+    const gc = document.createElement('canvas'); gc.width = gc.height = 128;
+    const gctx = gc.getContext('2d');
+    const grad = gctx.createRadialGradient(64,64,0,64,64,64);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.25, 'rgba(160,235,230,0.7)');
+    grad.addColorStop(1, 'rgba(80,200,190,0)');
+    gctx.fillStyle = grad; gctx.fillRect(0,0,128,128);
+    const glowMat = new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(gc), color: 0xffffff, transparent: true,
+      opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const glow = new THREE.Sprite(glowMat);
+    glow.scale.setScalar(0.6);
+
+    const group = new THREE.Group();
+    group.add(points, lines, glow);
+    scene.add(group);
+
+    function update(local) {
+      const t1 = gsap.utils.clamp(0, 1, local / 0.7);
+      const t2 = gsap.utils.clamp(0, 1, (local - 0.7) / 0.3);
+      const pos = pGeo.attributes.position.array;
+
+      for (let i = 0; i < N; i++) {
+        const ix = i * 3;
+        let x = pos0[ix]   + (pos1[ix]   - pos0[ix])   * t1;
+        let y = pos0[ix+1] + (pos1[ix+1] - pos0[ix+1]) * t1;
+        let z = pos0[ix+2] + (pos1[ix+2] - pos0[ix+2]) * t1;
+        x *= (1 - t2); y *= (1 - t2); z *= (1 - t2);
+        pos[ix] = x; pos[ix+1] = y; pos[ix+2] = z;
+      }
+      pGeo.attributes.position.needsUpdate = true;
+
+      const thresh = 0.85 - 0.6 * t1;
+      let count = 0;
+      for (let i = 0; i < N && count < MAX_LINES; i++) {
+        for (let j = i + 1; j < N && count < MAX_LINES; j++) {
+          const dx = pos[i*3]-pos[j*3], dy = pos[i*3+1]-pos[j*3+1], dz = pos[i*3+2]-pos[j*3+2];
+          if (dx*dx + dy*dy + dz*dz < thresh * thresh) {
+            const o = count * 6;
+            lineArr[o]   = pos[i*3];   lineArr[o+1] = pos[i*3+1]; lineArr[o+2] = pos[i*3+2];
+            lineArr[o+3] = pos[j*3];   lineArr[o+4] = pos[j*3+1]; lineArr[o+5] = pos[j*3+2];
+            count++;
+          }
+        }
+      }
+      lGeo.attributes.position.needsUpdate = true;
+      lGeo.setDrawRange(0, count * 2);
+
+      glowMat.opacity = t2 * 0.9;
+      glow.scale.setScalar(0.2 + t2 * 1.6);
+      pMat.color.setHSL(0.5 - t2 * 0.1, 0.7, 0.6 + t2 * 0.35);
+
+      group.rotation.y += 0.0025;
+      group.rotation.x = Math.sin(local * Math.PI) * 0.25;
+      group.rotation.z += 0.0008;
+
+      renderer.render(scene, camera);
+    }
+
+    function resize() {
+      const w = canvas.clientWidth || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    p3.update = update;
+    p3.ready = true;
+  })();
+
+  const p5 = { local: 0, ready: false, update: null };
+
+  // 持续渲染循环（粒子自转不依赖 scrub）
+  (function rafLoop() {
+    requestAnimationFrame(rafLoop);
+    if (p3.ready) p3.update(p3.local);
+    if (p5.ready) p5.update(p5.local);
+  })();
+
+  /* 生成 P4 量子链 26 个节点 */
+  const p4Chain = document.querySelector('.p4-chain');
+  for (let i = 0; i < 26; i++) {
+    const s = document.createElement('span');
+    s.className = 'node';
+    p4Chain.appendChild(s);
+  }
+
+  /* ============================================================
+     P5 生命 · 水凝胶形变（直条→卷曲→闭环支架）
+     状态由 P5 局部进度 p5.local（0→1）驱动
+     ============================================================ */
+  (function initP5() {
+    const path = document.querySelector('.p5-path');
+    const nodesG = document.querySelector('.p5-nodes');
+    if (!path || !nodesG) return;
+
+    const N = 36, L = 1.8;
+    const nodeEls = [];
+    for (let i = 0; i < N; i++) {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('r', '0.02');
+      c.setAttribute('class', 'p5-node');
+      nodesG.appendChild(c);
+      nodeEls.push(c);
+    }
+
+    function positions(local) {
+      const pts = [];
+      const theta = local * Math.PI * 2;
+      for (let i = 0; i < N; i++) {
+        const s = i / (N - 1);
+        if (local < 0.002) {
+          pts.push([(s - 0.5) * L, 0]);
+        } else {
+          const R = L / theta;
+          const phi = (s - 0.5) * theta;
+          pts.push([R * Math.sin(phi), R - R * Math.cos(phi)]);
+        }
+      }
+      return pts;
+    }
+
+    function update(local) {
+      const pts = positions(local);
+      let d = 'M ' + pts[0][0].toFixed(4) + ' ' + pts[0][1].toFixed(4);
+      for (let i = 1; i < N; i++) d += ' L ' + pts[i][0].toFixed(4) + ' ' + pts[i][1].toFixed(4);
+      if (local >= 0.999) d += ' Z';
+      path.setAttribute('d', d);
+      for (let i = 0; i < N; i++) {
+        nodeEls[i].setAttribute('cx', pts[i][0].toFixed(4));
+        nodeEls[i].setAttribute('cy', pts[i][1].toFixed(4));
+      }
+    }
+
+    p5.update = update;
+    p5.ready = true;
+  })();
+
+  /* 单细胞蛋白组：深底微小光点阵列 */
+  (function initP5Cells() {
+    const box = document.querySelector('.p5-cells');
+    if (!box) return;
+    for (let i = 0; i < 90; i++) {
+      const s = document.createElement('span');
+      const size = 1 + Math.random() * 2;
+      s.style.cssText = 'position:absolute;left:' + (Math.random()*100).toFixed(2) + '%;top:' + (Math.random()*100).toFixed(2) + '%;width:' + size.toFixed(2) + 'px;height:' + size.toFixed(2) + 'px;border-radius:50%;background:rgba(217,167,160,' + (0.3 + Math.random()*0.5).toFixed(2) + ');box-shadow:0 0 ' + (3 + Math.random()*4).toFixed(1) + 'px rgba(217,167,160,0.6);';
+      box.appendChild(s);
+    }
+  })();
+
+  /* P8 星图：极细星轨弧线 + 星点（自制 SVG） */
+  (function initP8() {
+    const svg = document.querySelector('.p8-stars svg');
+    if (!svg) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    const cx = 500, cy = 320;
+    // 星轨弧线（同心圆弧）
+    const g1 = document.createElementNS(NS, 'g');
+    g1.setAttribute('stroke', 'rgba(232,228,220,0.30)');
+    g1.setAttribute('fill', 'none');
+    g1.setAttribute('stroke-width', '1');
+    for (let i = 0; i < 18; i++) {
+      const r = 40 + i * 32;
+      const start = Math.random() * Math.PI * 2;
+      const sweep = 0.5 + Math.random() * 1.2;
+      const large = sweep > Math.PI ? 1 : 0;
+      const p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', 'M ' + (cx + r*Math.cos(start)).toFixed(1) + ' ' + (cy + r*Math.sin(start)).toFixed(1)
+        + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 '
+        + (cx + r*Math.cos(start+sweep)).toFixed(1) + ' ' + (cy + r*Math.sin(start+sweep)).toFixed(1));
+      g1.appendChild(p);
+    }
+    svg.appendChild(g1);
+    // 星点
+    const g2 = document.createElementNS(NS, 'g');
+    g2.setAttribute('fill', 'rgba(232,228,220,0.75)');
+    for (let i = 0; i < 90; i++) {
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', (Math.random()*1000).toFixed(1));
+      c.setAttribute('cy', (Math.random()*700).toFixed(1));
+      c.setAttribute('r', (0.5 + Math.random()*1.6).toFixed(2));
+      c.setAttribute('opacity', (0.25 + Math.random()*0.7).toFixed(2));
+      g2.appendChild(c);
+    }
+    svg.appendChild(g2);
+  })();
+
+  /* 生成 P6 白色扫光层（克隆暗色层，用 clip-path 揭示） */
+  document.querySelectorAll('.p6-col .col-dark').forEach(dark => {
+    const light = dark.cloneNode(true);
+    light.className = 'col-light';
+    dark.parentNode.appendChild(light);
+  });
+
+  /* ---- P1 序章（0.00–0.10） ---- */
+  // 金线 scaleX 0→1
+  tl.to('.p1-goldline', { scaleX: 1, duration: 0.06 }, 0.01);
+  // 标题浮现
+  tl.to('.p1-title',   { opacity: 1, y: 0, duration: 0.05 }, 0.015);
+  // 「百卅」二字
+  tl.to('.p1-baishi',  { opacity: 1, duration: 0.05 }, 0.02);
+  // 首段赋文（整段上浮淡入）
+  tl.to('.p1-prose',   { opacity: 1, y: 0, duration: 0.06 }, 0.03);
+  // 底部小字（延迟 0.05 出现）
+  tl.to('.p1-foot',    { opacity: 1, duration: 0.04 }, 0.05);
+
+  // P1 → P2 转场：卷轴展开（P2 clip-path 从下向上揭示），跨入 P2 区间
+  tl.to('.p2', { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.04 }, 0.08);
+
+  /* ---- P2 双线（0.10–0.22） ---- */
+  // 下层当代图：scale 1.1→1 且淡入（初始态已在 CSS 预设）
+  tl.to('.p2-lower', { scale: 1, opacity: 1, duration: 0.06 }, 0.10);
+  // 上层历史图：translateY -20% 且 0.8→0
+  tl.to('.p2-upper', { y: '-20%', opacity: 0, duration: 0.08 }, 0.12);
+  // 裂隙扩宽（暖白竖缝向两侧展开）
+  tl.to('.p2-fissure', { scaleX: 30, duration: 0.08 }, 0.12);
+  // 赋文第二段淡入
+  tl.to('.p2-prose', { opacity: 1, duration: 0.06 }, 0.14);
+
+  // P2 → P3 转场：裂隙纵向打开（P3 clip-path 从中间竖缝向左右展开）
+  tl.to('.p3', { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.04 }, 0.20);
+
+  /* ---- P3 脑机（0.22–0.36） ---- */
+  // 数据词淡入（贴粒子左侧）
+  tl.to('.p3-data', { opacity: 1, duration: 0.03 }, 0.24);
+  // 赋文按句 stagger（每句 translateX -8px→0 + 淡入）
+  gsap.utils.toArray('.p3-prose p').forEach((el, i) => {
+    tl.to(el, { opacity: 1, x: 0, duration: 0.025 }, 0.25 + i * 0.02);
+  });
+
+  // P3 → P4 转场：奇点炸开（P4 clip-path 从中心圆向外扩散）
+  tl.to('.p4', { clipPath: 'circle(150% at 50% 50%)', duration: 0.03 }, 0.34);
+
+  /* ---- P4 量子与苍穹（0.36–0.52） ---- */
+  // 数字 26/240 淡入
+  tl.to('.p4-num', { opacity: 1, duration: 0.03 }, 0.375);
+  // 26 节点依次点亮（量子链）
+  gsap.utils.toArray('.p4-chain .node').forEach((el, i) => {
+    tl.to(el, { opacity: 1, duration: 0.006 }, 0.375 + i * 0.0035);
+  });
+  // 量子赋文（左栏）
+  tl.to('.p4-prose-q', { opacity: 1, duration: 0.03 }, 0.40);
+  // 横向舞台从左向右经过（右段航天进入视野）
+  tl.to('.p4-track', { x: '-100vw', duration: 0.10 }, 0.42);
+  // 航天文字 + 航天赋文（右栏）
+  tl.to('.p4-space-label', { opacity: 1, duration: 0.03 }, 0.46);
+  tl.to('.p4-prose-s', { opacity: 1, duration: 0.03 }, 0.47);
+
+  /* ---- P5 生命（0.52–0.65） ---- */
+  tl.to('.p5', { opacity: 1, duration: 0.02 }, 0.53);
+  // 三组短句 stagger
+  gsap.utils.toArray('.p5-labels .lbl').forEach((el, i) => {
+    tl.to(el, { opacity: 1, duration: 0.015 }, 0.55 + i * 0.015);
+  });
+  // 赋文逐句
+  gsap.utils.toArray('.p5-prose p').forEach((el, i) => {
+    tl.to(el, { opacity: 1, duration: 0.02 }, 0.56 + i * 0.02);
+  });
+
+  // P5 → P6 转场：支架环扩张（P6 clip-path 从中心圆向外扩散）
+  tl.to('.p6', { clipPath: 'circle(150% at 50% 50%)', duration: 0.03 }, 0.64);
+
+  /* ---- P6 控制与产业（0.65–0.78） ---- */
+  // 琥珀扫光：光带从上到下
+  tl.to('.p6-scan', { top: '110vh', duration: 0.10 }, 0.66);
+  // 文字扫过变白（白色层从上向下揭示）
+  tl.to('.p6-col .col-light', { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.10 }, 0.66);
+  // 赋文淡入
+  tl.to('.p6-prose', { opacity: 1, duration: 0.03 }, 0.68);
+  // 过曝至白
+  tl.to('.p6-flash', { opacity: 1, duration: 0.015 }, 0.765);
+
+  /* ---- P7 数据（0.78–0.89） ---- */
+  tl.to('.p7', { opacity: 1, duration: 0.02 }, 0.79);
+  // 数字从中心向外逐个变白
+  const p7nums = gsap.utils.toArray('.p7-nums .d7');
+  const vw = window.innerWidth, vh = window.innerHeight;
+  p7nums.sort((a, b) => {
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    return Math.hypot(ra.left + ra.width/2 - vw/2, ra.top + ra.height/2 - vh/2)
+         - Math.hypot(rb.left + rb.width/2 - vw/2, rb.top + rb.height/2 - vh/2);
+  });
+  p7nums.forEach((el, i) => {
+    tl.to(el, { color: '#F2EBDD', duration: 0.02 }, 0.80 + i * 0.006);
+  });
+  // 数字汇聚到中心（缩小 + 淡出）
+  tl.to('.p7-nums .d7', { scale: 0.1, opacity: 0, duration: 0.03 }, 0.86);
+
+  // P7 → P8 转场：汇聚点扩展为星场（P8 中心扩散）
+  tl.to('.p8', { clipPath: 'circle(150% at 50% 50%)', duration: 0.03 }, 0.87);
+
+  /* ---- P8 终章（0.89–1.00） ---- */
+  // 星图缓慢显现
+  tl.to('.p8-stars', { opacity: 1, duration: 0.08 }, 0.88);
+  // 赋文末段整段淡入（跨越约 150vh）
+  tl.to('.p8-prose', { opacity: 1, duration: 0.07 }, 0.90);
+  // 底部落款小字
+  tl.to('.p8-foot', { opacity: 0.5, duration: 0.03 }, 0.95);
+
+  // 把 timeline 总时长精确钉到 1.0（progress = tl.progress()）
+  tl.set({}, {}, 1.0);
+
+  /* ---- HUD：显示当前 progress 与所在页 ---- */
+  const hud = document.getElementById('hud');
+  tl.eventCallback('onUpdate', () => {
+    const p = tl.progress();
+    let page = 'P1';
+    for (const [k, [a, b]] of Object.entries(PAGES)) {
+      if (p >= a && p < b) { page = k; break; }
+    }
+    hud.textContent = 'progress ' + p.toFixed(3) + ' · ' + page;
+    // 驱动 P3 粒子网络局部进度
+    p3.local = gsap.utils.clamp(0, 1, (p - PAGES.P3[0]) / (PAGES.P3[1] - PAGES.P3[0]));
+    // 驱动 P5 水凝胶形变局部进度
+    p5.local = gsap.utils.clamp(0, 1, (p - PAGES.P5[0]) / (PAGES.P5[1] - PAGES.P5[0]));
+  });
+</script>
+</body>
+</html>
